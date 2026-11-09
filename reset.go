@@ -11,6 +11,11 @@ func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		err = cfg.dbQueries.ResetChirps(r.Context())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	}
 	cfg.fileserverHits.Store(0)
