@@ -6,11 +6,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nazwadi/chirpy/internal/auth"
+	"github.com/nazwadi/chirpy/internal/database"
 )
 
 func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
-	type parameters struct {
-		Email string `json:"email"`
+	type params struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 	type returnVals struct {
 		ID        uuid.UUID `json:"id"`
@@ -20,14 +23,23 @@ func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	decoder := json.NewDecoder(r.Body)
-	params := parameters{}
-	err := decoder.Decode(&params)
+	parameters := params{}
+	err := decoder.Decode(&parameters)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
 		return
 	}
+	hashedPassword, err := auth.HashPassword(parameters.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't hash password", err)
+		return
+	}
+	cup := database.CreateUserParams{
+		Email:          parameters.Email,
+		HashedPassword: hashedPassword,
+	}
 
-	user, err := cfg.dbQueries.CreateUser(r.Context(), params.Email)
+	user, err := cfg.dbQueries.CreateUser(r.Context(), cup)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't query user", err)
 		return
