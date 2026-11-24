@@ -3,11 +3,12 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 	"strings"
+	"time"
 
-	"github.com/nazwadi/chirpy/internal/database"
 	"github.com/google/uuid"
+	"github.com/nazwadi/chirpy/internal/auth"
+	"github.com/nazwadi/chirpy/internal/database"
 )
 
 func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
@@ -15,8 +16,8 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
 		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
-		Body string `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
+		Body      string    `json:"body"`
+		UserID    uuid.UUID `json:"user_id"`
 	}
 	id, err := uuid.Parse(r.PathValue("chirpID"))
 	if err != nil {
@@ -36,10 +37,10 @@ func (cfg *apiConfig) handlerListChirps(w http.ResponseWriter, r *http.Request) 
 		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
-		Body string `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
+		Body      string    `json:"body"`
+		UserID    uuid.UUID `json:"user_id"`
 	}
-	chirps, err := cfg.dbQueries.ListChirps(r.Context());
+	chirps, err := cfg.dbQueries.ListChirps(r.Context())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could list chirps", err)
 		return
@@ -48,11 +49,11 @@ func (cfg *apiConfig) handlerListChirps(w http.ResponseWriter, r *http.Request) 
 
 	for _, chirp := range chirps {
 		chirpList = append(chirpList, returnVals{
-			ID: chirp.ID,
+			ID:        chirp.ID,
 			CreatedAt: chirp.CreatedAt,
 			UpdatedAt: chirp.UpdatedAt,
-			Body: chirp.Body,
-			UserID: chirp.UserID,
+			Body:      chirp.Body,
+			UserID:    chirp.UserID,
 		})
 	}
 	respondWithJSON(w, http.StatusOK, chirpList)
@@ -60,22 +61,34 @@ func (cfg *apiConfig) handlerListChirps(w http.ResponseWriter, r *http.Request) 
 
 func (cfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Body string `json:"body"`
+		Body   string `json:"body"`
 		UserID string `json:"user_id"`
 	}
 	type returnVals struct {
 		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
-		Body string `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
+		Body      string    `json:"body"`
+		UserID    uuid.UUID `json:"user_id"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
+		respondWithError(w, http.StatusBadRequest, "Couldn't decode parameters", err)
+		return
+	}
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Couldn't parse JWT token", err)
+		return
+	}
+	uid, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid token", err)
 		return
 	}
 
@@ -95,21 +108,15 @@ func (cfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	body := strings.Join(bodyParse, " ")
-	userID, err := uuid.Parse(params.UserID)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't parse the UUID provided", err)
-		return
-	}
 
 	chirp, err := cfg.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
-		Body: body,
-		UserID: userID,
+		Body:   body,
+		UserID: uid,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create chirp", err)
 		return
 	}
 
-	respondWithJSON(w, http.StatusCreated, returnVals{ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: body, UserID: userID})
+	respondWithJSON(w, http.StatusCreated, returnVals{ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: body, UserID: uid})
 }
-
