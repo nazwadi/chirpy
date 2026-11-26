@@ -13,6 +13,13 @@ import (
 	"github.com/google/uuid"
 )
 
+type TokenType string
+
+const (
+	// TokenTypeAccess -
+	TokenTypeAccess TokenType = "chirpy-access"
+)
+
 func HashPassword(password string) (string, error) {
 	hash, err := argon2id.CreateHash(password, argon2id.DefaultParams)
 	if err != nil {
@@ -29,18 +36,19 @@ func CheckPasswordHash(password, hash string) (bool, error) {
 	return result, nil
 }
 
-func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
+func MakeJWT(
+	userID uuid.UUID,
+	tokenSecret string,
+	expiresIn time.Duration,
+) (string, error) {
+	signingKey := []byte(tokenSecret)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Issuer:    "chirpy-access",
+		Issuer:    string(TokenTypeAccess),
 		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiresIn)),
 		Subject:   userID.String(),
 	})
-	signed, err := token.SignedString([]byte(tokenSecret))
-	if err != nil {
-		return "", err
-	}
-	return signed, nil
+	return token.SignedString(signingKey)
 }
 
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
@@ -69,19 +77,20 @@ func GetBearerToken(headers http.Header) (string, error) {
 	if authHeader == "" {
 		return "", errors.New("authorization header not found")
 	}
-	tokenString := strings.Split(authHeader, " ")
-	if len(tokenString) < 2 {
-		return "", errors.New("authorization header is invalid")
+	splitAuth := strings.Split(authHeader, " ")
+	if len(splitAuth) < 2 || splitAuth[0] != "Bearer" {
+		return "", errors.New("malformed authorization header")
 	}
-	return tokenString[1], nil
+	return splitAuth[1], nil
 }
 
+// MakeRefreshToken makes a random 256 bit token
+// encoded in hex
 func MakeRefreshToken() string {
-	buf := make([]byte, 16)
+	buf := make([]byte, 32)
 	_, err := rand.Read(buf)
 	if err != nil {
 		return ""
 	}
-	refreshToken := hex.EncodeToString(buf)
-	return refreshToken
+	return hex.EncodeToString(buf)
 }
