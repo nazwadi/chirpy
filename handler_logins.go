@@ -56,3 +56,42 @@ func (cfg *apiConfig) handlerLogins(w http.ResponseWriter, r *http.Request) {
 	}
 	respondWithJSON(w, http.StatusOK, returnVals{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email, Token: token, RefreshToken: refreshToken.Token})
 }
+
+func (cfg *apiConfig) handlerRefreshToken(w http.ResponseWriter, r *http.Request) {
+	type returnVals struct {
+		Token string `json:"token"`
+	}
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Couldn't parse token", err)
+		return
+	}
+	user, err := cfg.dbQueries.GetUserFromRefreshToken(r.Context(), token)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "User not found", err)
+		return
+	}
+	expiresIn := time.Hour
+	token, err = auth.MakeJWT(user.ID, cfg.secret, expiresIn)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't generate JWT", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, returnVals{Token: token})
+}
+
+func (cfg *apiConfig) handlerRevokeToken(w http.ResponseWriter, r *http.Request) {
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Couldn't parse token", err)
+		return
+	}
+	err = cfg.dbQueries.RevokeRefreshToken(r.Context(), token)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't revoke refresh token", err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
